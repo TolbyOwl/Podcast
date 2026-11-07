@@ -25,15 +25,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
 
-  // Initialize Windows SMTC bridge if on Windows
-  if (!kIsWeb && Platform.isWindows) {
-    try {
-      await SMTCWindows.initialize();
-    } catch (e) {
-      debugPrint('SMTCWindows.initialize() error: $e');
-    }
-  }
-
   LocalStorage.initializeDatabase();
 
   // Initialize Supabase with JoyPlay / Music & Podcast credentials
@@ -54,22 +45,37 @@ void main() async {
   // Pre-initialize the database to ensure sqflite plugin is ready
   await LocalStorage.instance.database;
 
+  // Initialize Windows SMTC bridge if on Windows
+  if (!kIsWeb && Platform.isWindows) {
+    try {
+      await SMTCWindows.initialize();
+    } catch (e) {
+      debugPrint('SMTCWindows.initialize() error: $e');
+    }
+  }
+
   // Initialize Audio Handler with background service support on mobile
   AudioPlayerHandler audioHandler;
   if (!kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS)) {
-    audioHandler = await AudioService.init<AudioPlayerHandler>(
-      builder: () => AudioPlayerHandler(),
-      config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.example.podcast.channel.audio',
-        androidNotificationChannelName: 'Podcast Playback',
-        androidNotificationChannelDescription: 'Active podcast playback controls and progress',
-        androidNotificationIcon: 'drawable/ic_notification',
-        androidStopForegroundOnPause: false,
-        androidNotificationOngoing: false,
-      ),
-    );
+    try {
+      audioHandler = await AudioService.init<AudioPlayerHandler>(
+        builder: () => AudioPlayerHandler(),
+        config: const AudioServiceConfig(
+          androidNotificationChannelId: 'com.example.podcast.channel.audio',
+          androidNotificationChannelName: 'Podcast Playback',
+          androidNotificationChannelDescription: 'Active podcast playback controls and progress',
+          androidNotificationIcon: 'drawable/ic_notification',
+          androidStopForegroundOnPause: false,
+          androidNotificationOngoing: false,
+        ),
+      );
+    } catch (e) {
+      debugPrint('AudioService.init error on mobile: $e');
+      audioHandler = AudioPlayerHandler();
+    }
   } else {
     audioHandler = AudioPlayerHandler();
+    audioHandler.initSMTC();
   }
 
   // Pull cloud data if authenticated and restore persistent playback

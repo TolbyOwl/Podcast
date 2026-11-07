@@ -37,10 +37,9 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
   AudioPlayerHandler() {
     _player = Player();
     _initPlayer();
-    _initSMTC();
   }
 
-  void _initSMTC() {
+  void initSMTC() {
     if (!kIsWeb && Platform.isWindows) {
       try {
         _smtc = SMTCWindows(
@@ -53,6 +52,12 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
             fastForwardEnabled: true,
             rewindEnabled: true,
           ),
+          metadata: const MusicMetadata(
+            title: 'Podcast',
+            artist: 'Podcast Player',
+            album: 'Podcast',
+          ),
+          status: PlaybackStatus.paused,
         );
         _smtcButtonSub = _smtc!.buttonPressStream.listen((event) {
           switch (event) {
@@ -78,6 +83,10 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
               break;
           }
         });
+        if (_currentEpisode != null) {
+          _updateSMTCMetadata(_currentEpisode!);
+          _updateSMTCState();
+        }
       } catch (e) {
         debugPrint('SMTCWindows init error: $e');
       }
