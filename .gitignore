@@ -30,8 +30,21 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
+build/
+**/build/
 /coverage/
+
+# Environment files and local secrets
+.env
+.env.*
+*.env
+
+# Android & Keystores
+*.keystore
+*.jks
+key.properties
+**/local.properties
+**/android/.gradle/
 
 # Symbolication related
 app.*.symbols
