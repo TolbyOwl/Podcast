@@ -33,10 +33,15 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
   Duration get position => _position;
   Duration get duration => _duration;
   double get speed => _speed;
+  bool _hasDummyMediaItem = false;
+  bool _hasAutoMarkedPlayed = false;
+  static const double _autoMarkPlayedThreshold = 0.90; // 90%
 
-  AudioPlayerHandler() {
-    _player = Player();
+  AudioPlayerHandler({required Player player}) {
+    _player = player;
     _initPlayer();
+    // Force an initial state broadcast so Android binds the MediaSession immediately
+    _updateAudioServiceState();
   }
 
   void initSMTC() {
@@ -108,6 +113,7 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
       notifyListeners();
       if (_currentEpisode != null && _isPlaying) {
         _savePlaybackPosition(pos.inSeconds);
+        _checkAutoMarkPlayed(pos);
       }
     });
 
@@ -119,7 +125,7 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
     });
 
     _player.stream.completed.listen((completed) {
-      if (completed) {
+      if (completed && _currentEpisode != null) {
         _handleEpisodeFinished();
       }
     });
@@ -130,13 +136,48 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
   }
 
   void _updateAudioServiceState() {
+    // If there is no episode, push a dummy item so the toaster has metadata to display
+    if (_currentEpisode == null && !_hasDummyMediaItem) {
+      mediaItem.add(const MediaItem(
+        id: 'empty_queue',
+        title: 'No Episode Selected',
+        artist: 'Podcast',
+        album: 'Podcast',
+      ));
+      _hasDummyMediaItem = true;
+    } else if (_currentEpisode != null && _hasDummyMediaItem) {
+      _hasDummyMediaItem = false;
+    }
+
     playbackState.add(
       PlaybackState(
         controls: [
-          MediaControl.rewind,
-          _isPlaying ? MediaControl.pause : MediaControl.play,
-          MediaControl.fastForward,
-          MediaControl.skipToNext,
+          const MediaControl(
+            androidIcon: 'drawable/ic_stat_fast_rewind',
+            label: 'Rewind',
+            action: MediaAction.rewind,
+          ),
+          _isPlaying
+              ? const MediaControl(
+                  androidIcon: 'drawable/ic_stat_pause',
+                  label: 'Pause',
+                  action: MediaAction.pause,
+                )
+              : const MediaControl(
+                  androidIcon: 'drawable/ic_stat_play_arrow',
+                  label: 'Play',
+                  action: MediaAction.play,
+                ),
+          const MediaControl(
+            androidIcon: 'drawable/ic_stat_fast_forward',
+            label: 'Fast Forward',
+            action: MediaAction.fastForward,
+          ),
+          const MediaControl(
+            androidIcon: 'drawable/ic_stat_skip_next',
+            label: 'Skip to Next',
+            action: MediaAction.skipToNext,
+          ),
         ],
         systemActions: const {
           MediaAction.seek,
@@ -152,9 +193,7 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
           MediaAction.skipToPrevious,
         },
         androidCompactActionIndices: const [0, 1, 3],
-        processingState: _currentEpisode == null
-            ? AudioProcessingState.idle
-            : AudioProcessingState.ready,
+        processingState: AudioProcessingState.ready,
         playing: _isPlaying,
         updatePosition: _position,
         bufferedPosition: _position,
@@ -223,18 +262,26 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
         _updateSMTCState();
 
         notifyListeners();
+      } else {
+        // ADDED: Force the initial broadcast even if the queue is empty
+        _updateAudioServiceState();
       }
     } catch (e) {
       debugPrint('Error restoring last playback: $e');
+      // ADDED: Force the initial broadcast on error as well
+      _updateAudioServiceState();
     }
   }
 
   Future<void> playEpisode(Episode episode, {bool startPlaying = true}) async {
-    unawaited(_player.stop());
+    // Await stop so the player is fully idle before opening a new media source.
+    // Using unawaited here caused a race when the previous episode had just finished.
+    await _player.stop();
     _currentEpisode = episode;
     _position = Duration.zero;
     _duration = Duration(seconds: episode.durationSeconds);
     _isPlaying = startPlaying;
+    _hasAutoMarkedPlayed = false;
 
     mediaItem.add(MediaItem(
       id: episode.guid,
@@ -304,9 +351,9 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
   Future<void> play() async {
     if (_currentEpisode != null && _player.state.playlist.medias.isEmpty) {
       await playEpisode(_currentEpisode!, startPlaying: true);
-    } else {
-      await _player.play();
+      return;
     }
+    await _player.play();
     _isPlaying = true;
     _updateAudioServiceState();
     _updateSMTCState();
@@ -396,6 +443,28 @@ class AudioPlayerHandler extends BaseAudioHandler with ChangeNotifier {
       await DownloadManager.instance.onEpisodeFinished(_currentEpisode!);
     }
     await skipToNext();
+  }
+
+  Future<void> _checkAutoMarkPlayed(Duration pos) async {
+    if (_hasAutoMarkedPlayed) return;
+    final totalSec = _duration.inSeconds > 0
+        ? _duration.inSeconds
+        : _currentEpisode!.durationSeconds;
+    if (totalSec <= 0) return;
+    final ratio = pos.inSeconds / totalSec;
+    if (ratio >= _autoMarkPlayedThreshold) {
+      _hasAutoMarkedPlayed = true;
+      await LocalStorage.instance.recordPlayback(
+        audioUrl: _currentEpisode!.audioUrl,
+        feedUrl: _currentEpisode!.feedUrl,
+        episodeTitle: _currentEpisode!.title,
+        podcastTitle: _currentEpisode!.podcastTitle,
+        positionSeconds: pos.inSeconds,
+        durationSeconds: totalSec,
+        completed: true,
+      );
+      debugPrint('Auto-marked as played at ${(ratio * 100).toStringAsFixed(0)}%');
+    }
   }
 
   Future<void> _savePlaybackPosition(int seconds) async {

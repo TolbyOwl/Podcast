@@ -66,6 +66,14 @@ class LocalStorage {
         lastPlayedAt TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE notified_episodes (
+        guid TEXT PRIMARY KEY,
+        feedUrl TEXT NOT NULL,
+        notifiedAt TEXT NOT NULL
+      )
+    ''');
   }
 
   // --- Subscriptions in SharedPreferences ---
@@ -229,6 +237,26 @@ class LocalStorage {
   Future<List<Map<String, dynamic>>> getAllHistory() async {
     final db = await database;
     return await db.query('playback_history', orderBy: 'lastPlayedAt DESC');
+  }
+
+  // --- Notified Episodes Tracking ---
+  Future<void> recordNotifiedEpisode({required String guid, required String feedUrl}) async {
+    final db = await database;
+    await db.insert('notified_episodes', {
+      'guid': guid,
+      'feedUrl': feedUrl,
+      'notifiedAt': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<bool> isEpisodeNotified(String guid) async {
+    final db = await database;
+    final res = await db.query(
+      'notified_episodes',
+      where: 'guid = ?',
+      whereArgs: [guid],
+    );
+    return res.isNotEmpty;
   }
 
   Future<void> saveRawHistory(List<dynamic> history) async {

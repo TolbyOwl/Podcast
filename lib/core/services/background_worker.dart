@@ -20,9 +20,6 @@ void callbackDispatcher() {
       final subs = await LocalStorage.instance.getSubscriptions();
       final settings = await LocalStorage.instance.getSettings();
 
-      int notificationId = 100;
-      int newEpisodesCount = 0;
-
       for (final sub in subs) {
         try {
           final response = await dio
@@ -38,17 +35,14 @@ void callbackDispatcher() {
                   await LocalStorage.instance.getPlaybackHistory(latest.audioUrl);
               final existingDownload =
                   await LocalStorage.instance.getDownloadRecord(latest.guid);
+              final alreadyNotified = await LocalStorage.instance.isEpisodeNotified(latest.guid);
 
-              // Notify user of latest release if it's very recent (e.g. past 24 hours) and unplayed
-              if (latest.publishedDate != null &&
-                  DateTime.now().difference(latest.publishedDate!).inHours < 24 &&
-                  history == null) {
-                newEpisodesCount++;
-                await NotificationService.instance.showNewEpisodeNotification(
-                  id: notificationId++,
-                  podcastTitle: sub.title,
-                  episodeTitle: latest.title,
-                  badgeCount: newEpisodesCount,
+              // Notify user of new episode if not already notified and not played
+              if (!alreadyNotified && history == null) {
+                await NotificationService.instance.showEpisodeNotification(latest);
+                await LocalStorage.instance.recordNotifiedEpisode(
+                  guid: latest.guid,
+                  feedUrl: latest.feedUrl,
                 );
               }
 
@@ -76,10 +70,7 @@ void callbackDispatcher() {
 
 class BackgroundWorker {
   static void initialize() {
-    Workmanager().initialize(
-      callbackDispatcher,
-      isInDebugMode: false,
-    );
+    Workmanager().initialize(callbackDispatcher);
   }
 
   static void schedulePeriodicCheck({int intervalHours = 3}) {

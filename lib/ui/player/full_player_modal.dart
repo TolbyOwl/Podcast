@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../core/database/local_storage.dart';
 import '../../core/services/audio_player_handler.dart';
+import '../../models/podcast.dart';
+import '../podcast_detail/podcast_detail_page.dart';
 
 class FullPlayerModal extends StatefulWidget {
   final AudioPlayerHandler audioHandler;
@@ -99,13 +102,18 @@ class _FullPlayerModalState extends State<FullPlayerModal> {
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 6),
-              Text(
-                episode.podcastTitle,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
+              GestureDetector(
+                onTap: () => _navigateToPodcast(context, episode),
+                child: Text(
+                  episode.podcastTitle,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                    decorationColor: theme.colorScheme.primary,
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -226,6 +234,33 @@ class _FullPlayerModalState extends State<FullPlayerModal> {
       height: 280,
       color: theme.colorScheme.primary.withValues(alpha: 0.1),
       child: Icon(Icons.podcasts, size: 80, color: theme.colorScheme.primary),
+    );
+  }
+
+  Future<void> _navigateToPodcast(BuildContext context, episode) async {
+    // Look up the podcast from subscriptions; fall back to a stub if not subscribed.
+    final subs = await LocalStorage.instance.getSubscriptions();
+    final podcast = subs.firstWhere(
+      (p) => p.feedUrl == episode.feedUrl,
+      orElse: () => Podcast(
+        feedUrl: episode.feedUrl,
+        title: episode.podcastTitle,
+        author: '',
+        artworkUrl: episode.artworkUrl,
+        subscribedAt: DateTime.now(),
+      ),
+    );
+    if (!context.mounted) return;
+    // Close the player modal first, then push the podcast page.
+    Navigator.pop(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PodcastDetailPage(
+          podcast: podcast,
+          audioHandler: widget.audioHandler,
+        ),
+      ),
     );
   }
 

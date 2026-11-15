@@ -34,8 +34,14 @@ void main() async {
   );
 
   // Initialize Notifications & Background Tasks
-  await NotificationService.instance.init();
-  await NotificationService.instance.requestPermission();
+  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+    try {
+      await NotificationService.instance.init();
+      await NotificationService.instance.requestPermission();
+    } catch (e) {
+      debugPrint('Notification permission error: $e');
+    }
+  }
 
   if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
     BackgroundWorker.initialize();
@@ -54,27 +60,34 @@ void main() async {
     }
   }
 
+  // Initialize media_kit player on the main isolate
+  final player = Player();
+
   // Initialize Audio Handler with background service support on mobile
   AudioPlayerHandler audioHandler;
   if (!kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS)) {
     try {
       audioHandler = await AudioService.init<AudioPlayerHandler>(
-        builder: () => AudioPlayerHandler(),
+        builder: () {
+          debugPrint('AUDIO_SERVICE_BUILDER: Creating AudioPlayerHandler...');
+          return AudioPlayerHandler(player: player);
+        },
         config: const AudioServiceConfig(
-          androidNotificationChannelId: 'com.example.podcast.channel.audio',
+          androidNotificationChannelId: 'com.example.podcast.channel.audio.v2',
           androidNotificationChannelName: 'Podcast Playback',
           androidNotificationChannelDescription: 'Active podcast playback controls and progress',
-          androidNotificationIcon: 'drawable/ic_notification',
-          androidStopForegroundOnPause: false,
-          androidNotificationOngoing: false,
+          androidNotificationIcon: 'mipmap/ic_launcher',
+          androidStopForegroundOnPause: true,
+          androidNotificationOngoing: true,
         ),
       );
-    } catch (e) {
-      debugPrint('AudioService.init error on mobile: $e');
-      audioHandler = AudioPlayerHandler();
+      debugPrint('AUDIO_SERVICE_INIT: Success! Session token created.');
+    } catch (e, stackTrace) {
+      debugPrint('AUDIO_SERVICE_INIT_ERROR: $e\n$stackTrace');
+      rethrow;
     }
   } else {
-    audioHandler = AudioPlayerHandler();
+    audioHandler = AudioPlayerHandler(player: player);
     audioHandler.initSMTC();
   }
 
