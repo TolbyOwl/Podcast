@@ -1,4 +1,4 @@
-# podcast
+# Podcast
 
 A new Flutter project.
 
